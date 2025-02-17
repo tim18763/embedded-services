@@ -44,6 +44,9 @@ pub enum Internal {
     /// Battery service provider
     Battery,
 
+    /// Fan service provider
+    Fan,
+
     /// NVM service provider
     Nonvol,
 
@@ -230,6 +233,7 @@ fn get_list(target: EndpointID) -> &'static OnceLock<IntrusiveList> {
             static INTERNAL_LIST_POWER: OnceLock<IntrusiveList> = OnceLock::new();
             static INTERNAL_LIST_USBC: OnceLock<IntrusiveList> = OnceLock::new();
             static INTERNAL_LIST_THERMAL: OnceLock<IntrusiveList> = OnceLock::new();
+            static INTERNAL_LIST_FAN: OnceLock<IntrusiveList> = OnceLock::new();
             static INTERNAL_LIST_TRACKPAD: OnceLock<IntrusiveList> = OnceLock::new();
             static INTERNAL_LIST_BATTERY: OnceLock<IntrusiveList> = OnceLock::new();
             static INTERNAL_LIST_NONVOL: OnceLock<IntrusiveList> = OnceLock::new();
@@ -245,6 +249,7 @@ fn get_list(target: EndpointID) -> &'static OnceLock<IntrusiveList> {
                 Power => &INTERNAL_LIST_POWER,
                 Usbc => &INTERNAL_LIST_USBC,
                 Thermal => &INTERNAL_LIST_THERMAL,
+                Fan => &INTERNAL_LIST_FAN,
                 Trackpad => &INTERNAL_LIST_TRACKPAD,
                 Battery => &INTERNAL_LIST_BATTERY,
                 Nonvol => &INTERNAL_LIST_NONVOL,
@@ -290,6 +295,7 @@ pub(crate) fn init() {
     get_list(Internal::Power.into()).get_or_init(IntrusiveList::new);
     get_list(Internal::Usbc.into()).get_or_init(IntrusiveList::new);
     get_list(Internal::Thermal.into()).get_or_init(IntrusiveList::new);
+    get_list(Internal::Fan.into()).get_or_init(IntrusiveList::new);
     get_list(Internal::Trackpad.into()).get_or_init(IntrusiveList::new);
     get_list(Internal::Battery.into()).get_or_init(IntrusiveList::new);
     get_list(Internal::Nonvol.into()).get_or_init(IntrusiveList::new);
