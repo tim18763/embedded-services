@@ -143,8 +143,8 @@ impl<const N: usize, C: Controller> ControllerWrapper<'_, N, C> {
         let state = power.state().await.kind();
 
         if state == StateKind::ConnectedConsumer {
-            info!("Port{}: Disconnect consumer", port.0);
-            if controller.enable_sink_path(port, false).await.is_err() {
+            info!("Port{}: Disconnect consumer (disabled)", port.0);
+            /* if controller.enable_sink_path(port, false).await.is_err() {
                 error!("Error disabling sink path");
                 power.send_response(Err(policy::Error::Failed)).await;
                 return PdError::Failed.into();
@@ -165,7 +165,7 @@ impl<const N: usize, C: Controller> ControllerWrapper<'_, N, C> {
             {
                 error!("Error setting source current to default");
                 return PdError::Failed.into();
-            }
+            } */
         }
 
         Ok(())
