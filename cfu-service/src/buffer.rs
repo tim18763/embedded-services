@@ -26,6 +26,10 @@ struct State {
     pending_response: Option<InternalResponseData>,
     /// Whether the component is busy processing a request
     component_busy: bool,
+
+    latest_sequence_num: u16,
+
+    process_sequence_num: u16,
 }
 
 /// Buffer config
@@ -163,14 +167,17 @@ impl<'a> Buffer<'a> {
             state.pending_response = None;
         }
 
+        state.latest_sequence_num = content.header.sequence_num;
+
         if state.component_busy {
             // Buffer the content if the component is busy
             // If the buffer is full, this will block until space is available
-            trace!("Component is busy, buffering content");
+            trace!("buffer: Component is busy, buffering content");
             self.buffer_sender.send(*content).await;
-            trace!("Content successfully buffered");
+            trace!("buffer: Content successfully buffered");
         } else {
             // Buffered component can accept new content, send it
+            state.process_sequence_num = content.header.sequence_num;
             if let Err(e) = cfu::send_device_request(self.buffered_id, RequestData::GiveContent(*content)).await {
                 error!(
                     "Failed to send content to buffered component {:?}: {:?}",
@@ -190,8 +197,9 @@ impl<'a> Buffer<'a> {
                 if let Some(response) = state.pending_response.take() {
                     if let InternalResponseData::ContentResponse(mut response) = response {
                         // Update the sequence number to pretend it's for this content.
-                        trace!("Using pending response: {:?}", response);
+                        trace!("buffer: Using pending response: {:?}", response);
                         response.sequence = content.header.sequence_num;
+                        trace!("buffer: response.sequence {:?}", response.sequence);
                         InternalResponseData::ContentResponse(response)
                     } else {
                         // This should never happen and means that the component sent an invalid response
@@ -201,7 +209,7 @@ impl<'a> Buffer<'a> {
                     }
                 } else {
                     // Otherwise just accept the content
-                    trace!("Buffered component timed out, sending accept response");
+                    trace!("buffer: Buffered component timed out, sending accept response");
                     InternalResponseData::ContentResponse(FwUpdateContentResponse::new(
                         content.header.sequence_num,
                         CfuUpdateContentResponseStatus::Success,
@@ -209,12 +217,20 @@ impl<'a> Buffer<'a> {
                 }
             }
             Ok(response) => {
-                trace!("Buffered component responded");
+                trace!("buffer: Buffered component responded");
                 state.component_busy = false;
                 match response {
                     Ok(InternalResponseData::ContentResponse(mut response)) => {
-                        response.sequence = content.header.sequence_num;
-                        InternalResponseData::ContentResponse(response)
+                        trace!("buffer: component response sequence is {:?}, and latest_sequence_num is {:?}", response.sequence, state.latest_sequence_num);
+                        // We still have unhandled content in buffer, don't send response to host for now, consume content in buffer first
+                        // Otherwise host will send new content to SAM and the unhandled content in buffer will never decrease
+                        if state.latest_sequence_num != response.sequence {
+                            InternalResponseData::ContentResponseIgnore
+                        } else {
+                            response.sequence = content.header.sequence_num;
+                            trace!("buffer: response.sequence {:?}", response.sequence);
+                            InternalResponseData::ContentResponse(response)
+                        }
                     }
                     Ok(response) => response,
                     Err(e) => {
@@ -256,16 +272,16 @@ impl<'a> Buffer<'a> {
         .await
         {
             Either3::First(content) => {
-                trace!("Buffered content received: {:?}", content);
+                trace!("buffer: Buffered content received: {:?}", content);
                 Event::BufferedContent(content)
             }
             Either3::Second(request) => {
-                trace!("Request received: {:?}", request);
+                trace!("buffer: Request received: {:?}", request);
                 Event::CfuRequest(request)
             }
             Either3::Third(response) => {
                 if let Ok(response) = response {
-                    trace!("Response received: {:?}", response);
+                    trace!("buffer: Response received: {:?}", response);
                     Event::ComponentResponse(response)
                 } else {
                     error!("Failed to get response from buffered component: {:?}", response);
@@ -279,10 +295,18 @@ impl<'a> Buffer<'a> {
     pub async fn process(&self, event: Event) -> Option<InternalResponseData> {
         let mut state = self.state.lock().await;
         match event {
-            Event::CfuRequest(request) => Some(self.process_request(&mut state, request).await),
+            Event::CfuRequest(request) => {
+                let result = self.process_request(&mut state, request).await;
+                if result == InternalResponseData::ContentResponseIgnore {
+                    None
+                } else {
+                    Some(result)
+                }
+            }
             Event::BufferedContent(content) => {
                 // Send the buffered content to the component
                 // Don't need to wait for a response here, the response will be caught later by either [`wait_event`] or [`process_give_content`]
+                state.process_sequence_num = content.header.sequence_num;
                 if let Err(e) = cfu::send_device_request(self.buffered_id, RequestData::GiveContent(content)).await {
                     error!(
                         "Failed to send content to buffered component {:?}: {:?}",
@@ -295,10 +319,18 @@ impl<'a> Buffer<'a> {
                 }
             }
             Event::ComponentResponse(response) => {
-                // Store the response for the next content request
-                state.pending_response = Some(response);
-                state.component_busy = false;
-                None
+                if state.latest_sequence_num == state.process_sequence_num
+                {
+                    // Now buffer is empty, send response to host and get new content
+                    state.component_busy = false;
+                    Some(response)
+                } else {
+                    // Store the response for the next content request
+                    state.pending_response = Some(response);
+                    state.component_busy = false;
+                    None
+                }
+                
             }
         }
     }
@@ -307,31 +339,31 @@ impl<'a> Buffer<'a> {
     async fn process_request(&self, state: &mut State, request: RequestData) -> InternalResponseData {
         match request {
             RequestData::FwVersionRequest => {
-                trace!("Got FwVersionRequest");
+                trace!("buffer: Got FwVersionRequest");
                 self.process_get_fw_version().await
             }
             RequestData::GiveOffer(offer) => {
-                trace!("Got GiveOffer");
+                trace!("buffer: Got GiveOffer");
                 self.process_give_offer(&offer).await
             }
             RequestData::GiveContent(content) => {
-                trace!("Got GiveContent");
+                trace!("buffer: Got GiveContent");
                 self.process_give_content(state, &content).await
             }
             RequestData::AbortUpdate => {
-                trace!("Got AbortUpdate");
+                trace!("buffer: Got AbortUpdate");
                 self.process_abort_update().await
             }
             RequestData::FinalizeUpdate => {
-                trace!("Got FinalizeUpdate");
+                trace!("buffer: Got FinalizeUpdate");
                 InternalResponseData::ComponentPrepared
             }
             RequestData::PrepareComponentForUpdate => {
-                trace!("Got PrepareComponentForUpdate");
+                trace!("buffer: Got PrepareComponentForUpdate");
                 InternalResponseData::ComponentPrepared
             }
             RequestData::GiveOfferExtended(_) => {
-                trace!("Got GiveOfferExtended");
+                trace!("buffer: Got GiveOfferExtended");
                 // Extended offers are not currently supported
                 InternalResponseData::OfferResponse(FwUpdateOfferResponse::new_with_failure(
                     HostToken::Driver,
@@ -340,7 +372,7 @@ impl<'a> Buffer<'a> {
                 ))
             }
             RequestData::GiveOfferInformation(_) => {
-                trace!("Got GiveOfferInformation");
+                trace!("buffer: Got GiveOfferInformation");
                 // Offer information is not currently supported
                 InternalResponseData::OfferResponse(FwUpdateOfferResponse::new_with_failure(
                     HostToken::Driver,

@@ -97,6 +97,8 @@ pub enum InternalResponseData {
     SubcomponentFwVersionResponse([FwVerComponentInfo; MAX_CMPT_COUNT - 1]),
     /// Component is ready to receive offers
     ComponentPrepared,
+
+    ContentResponseIgnore,
 }
 
 /// Channel size for device requests

@@ -164,31 +164,31 @@ impl<'a, C: Customization> Splitter<'a, C> {
     pub async fn process_request(&self, request: RequestData) -> InternalResponseData {
         match request {
             RequestData::FwVersionRequest => {
-                trace!("Got FwVersionRequest");
+                trace!("splitter Got FwVersionRequest");
                 self.process_get_fw_version().await
             }
             RequestData::GiveOffer(offer) => {
-                trace!("Got GiveOffer");
+                trace!("splitter Got GiveOffer");
                 self.process_give_offer(&offer).await
             }
             RequestData::GiveContent(content) => {
-                trace!("Got GiveContent");
+                trace!("splitter Got GiveContent");
                 self.process_give_content(&content).await
             }
             RequestData::AbortUpdate => {
-                trace!("Got AbortUpdate");
+                trace!("splitter Got AbortUpdate");
                 InternalResponseData::ComponentPrepared
             }
             RequestData::FinalizeUpdate => {
-                trace!("Got FinalizeUpdate");
+                trace!("splitter Got FinalizeUpdate");
                 InternalResponseData::ComponentPrepared
             }
             RequestData::PrepareComponentForUpdate => {
-                trace!("Got PrepareComponentForUpdate");
+                trace!("splitter Got PrepareComponentForUpdate");
                 InternalResponseData::ComponentPrepared
             }
             RequestData::GiveOfferExtended(_) => {
-                trace!("Got GiveExtendedOffer");
+                trace!("splitter Got GiveExtendedOffer");
                 // Extended offers are not currently supported
                 InternalResponseData::OfferResponse(FwUpdateOfferResponse::new_with_failure(
                     HostToken::Driver,
@@ -197,7 +197,7 @@ impl<'a, C: Customization> Splitter<'a, C> {
                 ))
             }
             RequestData::GiveOfferInformation(_) => {
-                trace!("Got GiveOfferInformation");
+                trace!("splitter Got GiveOfferInformation");
                 // Offer information is not currently supported
                 InternalResponseData::OfferResponse(FwUpdateOfferResponse::new_with_failure(
                     HostToken::Driver,

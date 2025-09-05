@@ -45,11 +45,11 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
         let version = match target.get_active_fw_version().await {
             Ok(v) => v,
             Err(Error::Pd(e)) => {
-                error!("Failed to get active firmware version: {:?}", e);
+                error!(" cfu: Failed to get active firmware version: {:?}", e);
                 return self.create_invalid_fw_version_response();
             }
             Err(Error::Bus(_)) => {
-                error!("Failed to get active firmware version, bus error");
+                error!(" cfu: Failed to get active firmware version, bus error");
                 return self.create_invalid_fw_version_response();
             }
         };
@@ -80,11 +80,11 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
         let version = match target.get_active_fw_version().await {
             Ok(v) => v,
             Err(Error::Pd(e)) => {
-                error!("Failed to get active firmware version: {:?}", e);
+                error!(" cfu: Failed to get active firmware version: {:?}", e);
                 return Self::create_offer_rejection();
             }
             Err(Error::Bus(_)) => {
-                error!("Failed to get active firmware version, bus error");
+                error!(" cfu: Failed to get active firmware version, bus error");
                 return Self::create_offer_rejection();
             }
         };
@@ -96,15 +96,15 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
         // abort the update process
         match controller.abort_fw_update().await {
             Ok(_) => {
-                debug!("FW update aborted successfully");
+                debug!(" cfu: FW update aborted successfully");
                 state.fw_update_state = FwUpdateState::Idle;
             }
             Err(Error::Pd(e)) => {
-                error!("Failed to abort FW update: {:?}", e);
+                error!(" cfu: Failed to abort FW update: {:?}", e);
                 state.fw_update_state = FwUpdateState::Recovery;
             }
             Err(Error::Bus(_)) => {
-                error!("Failed to abort FW update, bus error");
+                error!(" cfu: Failed to abort FW update, bus error");
                 state.fw_update_state = FwUpdateState::Recovery;
             }
         }
@@ -120,19 +120,19 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
         content: &FwUpdateContentCommand,
     ) -> InternalResponseData {
         let data = &content.data[0..content.header.data_length as usize];
-        debug!("Got content {:#?}", content);
+        debug!(" cfu: Got content {:#?}", content);
         if content.header.flags & FW_UPDATE_FLAG_FIRST_BLOCK != 0 {
-            debug!("Got first block");
+            debug!(" cfu: Got first block");
 
             // Detach from the power policy so it doesn't attempt to do anything while we are updating
             let controller_id = self.pd_controller.id();
             let mut detached_all = true;
             for power in &self.power {
-                info!("Controller{}: checking power device", controller_id.0);
+                info!(" cfu: Controller{}: checking power device", controller_id.0);
                 if power.state().await != power::policy::device::State::Detached {
-                    info!("Controller{}: Detaching power device", controller_id.0);
+                    info!(" cfu: Controller{}: Detaching power device", controller_id.0);
                     if let Err(e) = power.detach().await {
-                        error!("Controller{}: Failed to detach power device: {:?}", controller_id.0, e);
+                        error!(" cfu: Controller{}: Failed to detach power device: {:?}", controller_id.0, e);
 
                         // Sync to bring the controller to a known state with all services
                         match self.sync_state_internal(controller, state).await {
@@ -171,10 +171,10 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
             self.fw_update_ticker.lock().await.reset();
             match controller.start_fw_update().await {
                 Ok(_) => {
-                    debug!("FW update started successfully");
+                    debug!(" cfu: FW update started successfully");
                 }
                 Err(Error::Pd(e)) => {
-                    error!("Failed to start FW update: {:?}", e);
+                    error!(" cfu: Failed to start FW update: {:?}", e);
                     state.fw_update_state = FwUpdateState::Recovery;
                     return InternalResponseData::ContentResponse(FwUpdateContentResponse::new(
                         content.header.sequence_num,
@@ -182,7 +182,7 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
                     ));
                 }
                 Err(Error::Bus(_)) => {
-                    error!("Failed to start FW update, bus error");
+                    error!(" cfu: Failed to start FW update, bus error");
                     state.fw_update_state = FwUpdateState::Recovery;
                     return InternalResponseData::ContentResponse(FwUpdateContentResponse::new(
                         content.header.sequence_num,
@@ -199,17 +199,17 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
             .await
         {
             Ok(_) => {
-                debug!("Block written successfully");
+                debug!(" cfu: Block written successfully");
             }
             Err(Error::Pd(e)) => {
-                error!("Failed to write block: {:?}", e);
+                error!(" cfu: Failed to write block: {:?}", e);
                 return InternalResponseData::ContentResponse(FwUpdateContentResponse::new(
                     content.header.sequence_num,
                     CfuUpdateContentResponseStatus::ErrorWrite,
                 ));
             }
             Err(Error::Bus(_)) => {
-                error!("Failed to write block, bus error");
+                error!(" cfu: Failed to write block, bus error");
                 return InternalResponseData::ContentResponse(FwUpdateContentResponse::new(
                     content.header.sequence_num,
                     CfuUpdateContentResponseStatus::ErrorWrite,
@@ -220,16 +220,16 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
         if content.header.flags & FW_UPDATE_FLAG_LAST_BLOCK != 0 {
             match controller.finalize_fw_update().await {
                 Ok(_) => {
-                    debug!("FW update finalized successfully");
+                    debug!(" cfu: FW update finalized successfully");
                     state.fw_update_state = FwUpdateState::Idle;
                 }
                 Err(Error::Pd(e)) => {
-                    error!("Failed to finalize FW update: {:?}", e);
+                    error!(" cfu: Failed to finalize FW update: {:?}", e);
                     state.fw_update_state = FwUpdateState::Recovery;
                     return Self::create_offer_rejection();
                 }
                 Err(Error::Bus(_)) => {
-                    error!("Failed to finalize FW update, bus error");
+                    error!(" cfu: Failed to finalize FW update, bus error");
                     state.fw_update_state = FwUpdateState::Recovery;
                     return Self::create_offer_rejection();
                 }
@@ -251,11 +251,11 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
             }
             FwUpdateState::InProgress(ticks) => {
                 if ticks + 1 < DEFAULT_FW_UPDATE_TIMEOUT_TICKS {
-                    trace!("CFU tick: {}", ticks);
+                    trace!(" cfu: CFU tick: {}", ticks);
                     state.fw_update_state = FwUpdateState::InProgress(ticks + 1);
                     return;
                 } else {
-                    error!("FW update timed out after {} ticks", ticks);
+                    error!(" cfu: FW update timed out after {} ticks", ticks);
                 }
             }
             FwUpdateState::Recovery => {
@@ -267,14 +267,14 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
         state.fw_update_state = FwUpdateState::Recovery;
         match controller.abort_fw_update().await {
             Ok(_) => {
-                debug!("FW update aborted successfully");
+                debug!(" cfu: FW update aborted successfully");
             }
             Err(Error::Pd(e)) => {
-                error!("Failed to abort FW update: {:?}", e);
+                error!(" cfu: Failed to abort FW update: {:?}", e);
                 return;
             }
             Err(Error::Bus(_)) => {
-                error!("Failed to abort FW update, bus error");
+                error!(" cfu: Failed to abort FW update, bus error");
                 return;
             }
         }
@@ -290,41 +290,41 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
         command: &RequestData,
     ) -> InternalResponseData {
         if state.fw_update_state == FwUpdateState::Recovery {
-            debug!("FW update in recovery state, rejecting command");
+            debug!(" cfu: FW update in recovery state, rejecting command");
             return InternalResponseData::ComponentBusy;
         }
 
         match command {
             RequestData::FwVersionRequest => {
-                debug!("Got FwVersionRequest");
+                debug!(" cfu: Got FwVersionRequest");
                 self.process_get_fw_version(controller).await
             }
             RequestData::GiveOffer(offer) => {
-                debug!("Got GiveOffer");
+                debug!(" cfu: Got GiveOffer");
                 self.process_give_offer(controller, offer).await
             }
             RequestData::GiveContent(content) => {
-                debug!("Got GiveContent");
+                debug!(" cfu: Got GiveContent");
                 self.process_give_content(controller, state, content).await
             }
             RequestData::AbortUpdate => {
-                debug!("Got AbortUpdate");
+                debug!(" cfu: Got AbortUpdate");
                 self.process_abort_update(controller, state).await
             }
             RequestData::FinalizeUpdate => {
-                debug!("Got FinalizeUpdate");
+                debug!(" cfu: Got FinalizeUpdate");
                 InternalResponseData::ComponentPrepared
             }
             RequestData::PrepareComponentForUpdate => {
-                debug!("Got PrepareComponentForUpdate");
+                debug!(" cfu: Got PrepareComponentForUpdate");
                 InternalResponseData::ComponentPrepared
             }
             RequestData::GiveOfferExtended(_) => {
-                debug!("Got GiveExtendedOffer, rejecting");
+                debug!(" cfu: Got GiveExtendedOffer, rejecting");
                 Self::create_offer_rejection()
             }
             RequestData::GiveOfferInformation(_) => {
-                debug!("Got GiveOfferInformation, rejecting");
+                debug!(" cfu: Got GiveOfferInformation, rejecting");
                 Self::create_offer_rejection()
             }
         }
@@ -356,7 +356,7 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
                 {
                     Either::First(command) => EventCfu::Request(command),
                     Either::Second(_) => {
-                        debug!("FW update ticker ticked");
+                        debug!(" cfu: FW update ticker ticked");
                         EventCfu::RecoveryTick
                     }
                 }
@@ -364,7 +364,7 @@ impl<'a, const N: usize, C: Controller, BACK: Backing<'a>, V: FwOfferValidator> 
             FwUpdateState::Recovery => {
                 // Recovery state, wait for the next attempt to recover the device
                 self.fw_update_ticker.lock().await.next().await;
-                debug!("FW update ticker ticked");
+                debug!(" cfu: FW update ticker ticked");
                 EventCfu::RecoveryTick
             }
         }
